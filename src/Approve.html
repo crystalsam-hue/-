@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background:#f4f6f9; color:#1d2433; }
+    .wrap { max-width:420px; margin:0 auto; padding:24px 16px; }
+    h1 { font-size:20px; margin:0 0 16px; color:#1f4e79; }
+    .card { background:#fff; border-radius:14px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,.06); }
+    dl { display:grid; grid-template-columns:72px 1fr; gap:8px 12px; margin:0 0 12px; font-size:15px; }
+    dt { color:#6b7385; } dd { margin:0; }
+    textarea { width:100%; font-size:15px; padding:10px; border:1px solid #d5d9e0; border-radius:10px; min-height:60px; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+    button { font-size:17px; font-weight:600; padding:14px; border:0; border-radius:12px; color:#fff; }
+    button:disabled { opacity:.35; }
+    .ok { background:#1e7d4f; } .no { background:#c0392b; }
+    .msg { margin-top:12px; padding:12px; border-radius:10px; font-size:15px; display:none; }
+    .msg.s { display:block; background:#e8f6ef; color:#1e7d4f; }
+    .msg.e { display:block; background:#fdecea; color:#c0392b; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>휴가 승인</h1>
+  <div class="card">
+  <? if (error) { ?>
+    <div class="msg e"><?= error ?></div>
+  <? } else { ?>
+    <dl>
+      <dt>센터</dt><dd><?= req.center ?></dd>
+      <dt>신청자</dt><dd><?= req.name ?></dd>
+      <dt>종류</dt><dd><?= req.type ?></dd>
+      <dt>기간</dt><dd><?= req.period ?> (<?= req.days ?>일)</dd>
+      <dt>사유</dt><dd><?= req.reason ?></dd>
+      <dt>상태</dt><dd id="status"><?= req.status ?><? if (req.decidedBy) { ?> · <?= req.decidedBy ?><? } ?></dd>
+    </dl>
+    <? if (req.status === '신청') { ?>
+      <div id="form">
+        <textarea id="memo" maxlength="200" placeholder="메모 (선택, 반려 사유 등)"></textarea>
+        <div class="grid">
+          <button class="ok" onclick="decide('승인')">승인</button>
+          <button class="no" onclick="decide('반려')">반려</button>
+        </div>
+      </div>
+    <? } ?>
+    <div id="msg" class="msg"></div>
+  <? } ?>
+  </div>
+</div>
+<? if (!error) { ?>
+<script>
+  var LEAVE_ID = <?!= JSON.stringify(req.id) ?>;
+  var TOKEN = <?!= JSON.stringify(token) ?>;
+  function show(text, ok) { var m = document.getElementById('msg'); m.textContent = text; m.className = 'msg ' + (ok ? 's' : 'e'); }
+  function decide(decision) {
+    if (!confirm(decision + ' 하시겠습니까?')) return;
+    document.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    google.script.run
+      .withSuccessHandler(function (r) {
+        show(r.message, true);
+        document.getElementById('form').style.display = 'none';
+        document.getElementById('status').textContent = decision;
+      })
+      .withFailureHandler(function (e) {
+        show(String(e.message || e).replace(/^Error:\s*/, ''));
+        document.querySelectorAll('button').forEach(function (b) { b.disabled = false; });
+      })
+      .apiDecideLeave(LEAVE_ID, TOKEN, decision, document.getElementById('memo').value);
+  }
+</script>
+<? } ?>
+</body>
+</html>

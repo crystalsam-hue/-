@@ -7,7 +7,7 @@ function onOpen() {
     .addItem('1. 초기 설정 (시트 생성)', 'setup')
     .addItem('2. 자동 보고 시작 (트리거 등록)', 'installTriggers')
     .addSeparator()
-    .addItem('현황 지금 새로고침', 'refreshLiveSheet')
+    .addItem('현황 지금 새로고침', 'periodicRefresh')
     .addItem('회장 보고서 지금 발송', 'sendReportNow')
     .addItem('알림 테스트 (회장에게 발송)', 'testNotification')
     .addSeparator()
@@ -44,9 +44,31 @@ function setup() {
   }
 
   var employees = ensureSheet_(ss, SHEET.EMPLOYEES);
-  employees.getRange('A:F').setNumberFormat('@');
+  employees.getRange('A:H').setNumberFormat('@');
   if (employees.getLastRow() < 2) {
-    employees.getRange(2, 1, 1, 6).setValues([['E0001', '홍길동(예시)', 'C01', '01000000000', '1234', 'Y']]);
+    employees.getRange(2, 1, 1, 9).setValues([['E0001', '홍길동(예시)', '사원', 'C01', '01000000000', '1234', 'Y', '2024-03-01', '']]);
+  }
+  var rankList = getSettings().rankOrder;
+  employees.getRange('C2:C').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(rankList, true).setAllowInvalid(true).build());
+  employees.getRange('G2:G').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(['Y', 'N'], true).build());
+  employees.getRange(1, 8).setNote('예: 2024-03-01. 연차가 입사일 기준으로 자동 계산됩니다.');
+  employees.getRange(1, 9).setNote('비워 두면 자동 계산. 회계연도 기준 등으로 직접 정하려면 일수 입력.');
+
+  var leave = ensureSheet_(ss, SHEET.LEAVE);
+  leave.getRange('A:H').setNumberFormat('@');
+  leave.getRange('J:O').setNumberFormat('@');
+  leave.getRange('F2:F').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList(LEAVE_TYPES, true).build());
+  leave.getRange('K2:K').setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInList([LEAVE_STATUS.REQ, LEAVE_STATUS.OK, LEAVE_STATUS.NO, LEAVE_STATUS.CANCEL], true).build());
+  leave.getRange(1, 11).setNote('관리자가 직접 "승인"/"반려"로 바꿔도 됩니다. (10분 내 현황 반영)');
+
+  var holidays = ensureSheet_(ss, SHEET.HOLIDAYS);
+  holidays.getRange('A:A').setNumberFormat('@');
+  if (holidays.getLastRow() < 2) {
+    holidays.getRange(2, 1, DEFAULT_HOLIDAYS.length, 2).setValues(DEFAULT_HOLIDAYS);
   }
 
   var log = ensureSheet_(ss, SHEET.LOG);
@@ -57,10 +79,10 @@ function setup() {
   var blank = ss.getSheetByName('시트1') || ss.getSheetByName('Sheet1');
   if (blank && blank.getLastRow() === 0) ss.deleteSheet(blank);
 
-  refreshLiveSheet();
+  periodicRefresh();
   SpreadsheetApp.getUi().alert(
     '초기 설정 완료',
-    '[설정] [센터] [직원] 시트를 채운 뒤, 메뉴 [2. 자동 보고 시작]을 실행하세요.\n' +
+    '[설정] [센터] [직원] [공휴일] 시트를 채운 뒤, 메뉴 [2. 자동 보고 시작]을 실행하세요.\n' +
     '직원용 출퇴근 화면은 [배포 > 새 배포 > 웹 앱]으로 만든 주소를 직원들에게 공유합니다.',
     SpreadsheetApp.getUi().ButtonSet.OK);
 }
@@ -79,7 +101,7 @@ function ensureSheet_(ss, name) {
 function installTriggers() {
   removeTriggers(true);
   ScriptApp.newTrigger('scheduledReportTick').timeBased().everyMinutes(5).create();
-  ScriptApp.newTrigger('refreshLiveSheet').timeBased().everyMinutes(30).create();
+  ScriptApp.newTrigger('periodicRefresh').timeBased().everyMinutes(10).create();
   var s = getSettings();
   SpreadsheetApp.getUi().alert('자동 보고 시작',
     '보고 시각: ' + s.reportSlots.map(formatHm).join(', ') + ' (근무 요일: ' + s.workdays + ')\n' +
@@ -89,9 +111,15 @@ function installTriggers() {
 
 function removeTriggers(silent) {
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (['scheduledReportTick', 'refreshLiveSheet'].indexOf(t.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(t);
+    if (['scheduledReportTick', 'refreshLiveSheet', 'periodicRefresh'].indexOf(t.getHandlerFunction()) !== -1) ScriptApp.deleteTrigger(t);
   });
   if (silent !== true) SpreadsheetApp.getUi().alert('자동 보고를 중지했습니다.');
+}
+
+/** 10분마다: 날짜 변경 · 시트에서 직접 바꾼 휴가 승인 등을 현황에 반영 */
+function periodicRefresh() {
+  refreshLiveSheet();
+  refreshLeaveSheet();
 }
 
 function sendReportNow() {

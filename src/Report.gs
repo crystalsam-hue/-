@@ -2,34 +2,36 @@
  * 실시간 현황 시트 + 정기 보고(회장: 엑셀 첨부 이메일/알림톡, 센터장: 자기 센터 현황)
  */
 
-var SUMMARY_HEADER = ['센터', '센터장', '전체', '출근', '지각', '근무중', '외출중', '퇴근', '미출근'];
-var DETAIL_HEADER = ['센터', '사번', '이름', '현재상태', '출근', '지각', '최근 외출', '최근 복귀', '외출횟수', '퇴근'];
+var SUMMARY_HEADER = ['센터', '센터장', '전체', '출근', '지각', '근무중', '외출중', '퇴근', '휴가', '미출근'];
+var DETAIL_HEADER = ['센터', '직급', '사번', '이름', '현재상태', '휴가', '출근', '지각', '최근 외출', '최근 복귀', '외출횟수', '퇴근'];
+var DETAIL_STATE_COL = 4; // 0부터
+var DETAIL_LATE_COL = 7;
 
 function buildStatus_(date) {
   var settings = getSettings();
   var centers = getCenters();
   var employees = getEmployees();
   var dateStr = todayStr_(date);
-  var status = computeDailyStatus(centers, employees, getLogsForDate(dateStr), {
-    startMinutes: settings.startMinutes,
-    graceMinutes: settings.graceMinutes
-  });
+  var status = computeDailyStatus(centers, employees, getLogsForDate(dateStr), workRule_(settings),
+    leavesOn(getLeaves(), dateStr));
   var centerName = {};
   centers.forEach(function (c) { centerName[c.code] = c.name; });
-  status.rows.sort(function (a, b) {
-    return a.centerCode === b.centerCode ? a.employeeId.localeCompare(b.employeeId) : a.centerCode.localeCompare(b.centerCode);
-  });
   return { settings: settings, centers: centers, dateStr: dateStr, status: status, centerName: centerName };
 }
 
 function summaryValues_(s) {
-  return [s.centerName, s.managerName, s.total, s.present, s.late, s.working, s.away, s.left, s.absent];
+  return [s.centerName, s.managerName, s.total, s.present, s.late, s.working, s.away, s.left, s.vacation, s.absent];
 }
 
 function detailValues_(r, centerName) {
   var t = function (m) { return m === null ? '' : formatHm(m); };
-  return [centerName[r.centerCode] || r.centerCode, r.employeeId, r.name, r.state,
+  return [centerName[r.centerCode] || r.centerCode, r.rank, r.employeeId, r.name, r.state, r.leaveType,
     t(r.inAt), r.late ? '지각' : '', t(r.outAt), t(r.backAt), r.outCount || '', t(r.leaveAt)];
+}
+
+/** 상태별 배경색 (미출근: 빨강, 외출중: 노랑, 휴가: 초록) */
+function stateColor_(state) {
+  return { '미출근': '#fde2e1', '외출중': '#fff2cc', '휴가': '#e2efda' }[state] || null;
 }
 
 /** 시트에 요약표 + 상세표를 씀 (실시간현황 시트, 엑셀 보고서 공용) */
@@ -53,14 +55,14 @@ function writeReport_(sh, ctx, title) {
   sh.getRange(dTop, 1, detail.length, DETAIL_HEADER.length).setValues(detail);
   sh.getRange(dTop, 1, 1, DETAIL_HEADER.length).setFontWeight('bold').setBackground('#1f4e79').setFontColor('#ffffff');
 
-  // 상태 강조 (미출근: 빨강, 외출중: 노랑, 지각: 붉은 글씨) — 한 번에 적용
+  // 상태 강조 + 지각 붉은 글씨 — 한 번에 적용
   if (detail.length > 1) {
     var body = detail.slice(1);
     sh.getRange(dTop + 1, 1, body.length, DETAIL_HEADER.length).setBackgrounds(body.map(function (r) {
-      var color = r[3] === STATES.NONE ? '#fde2e1' : r[3] === STATES.AWAY ? '#fff2cc' : null;
+      var color = stateColor_(r[DETAIL_STATE_COL]);
       return DETAIL_HEADER.map(function () { return color; });
     }));
-    sh.getRange(dTop + 1, 6, body.length, 1).setFontColor('#c00000').setFontWeight('bold');
+    sh.getRange(dTop + 1, DETAIL_LATE_COL + 1, body.length, 1).setFontColor('#c00000').setFontWeight('bold');
   }
   sh.autoResizeColumns(1, DETAIL_HEADER.length);
 }
@@ -83,7 +85,7 @@ function refreshLiveSheet() {
 function scheduledReportTick() {
   var now = new Date();
   var settings = getSettings();
-  if (!isWorkday(weekdayIndex_(now), settings.workdays)) return;
+  if (!isWorkdate(todayStr_(now), settings.workdays, getHolidays())) return;
 
   var props = PropertiesService.getScriptProperties();
   var key = 'SENT_' + todayStr_(now);
@@ -120,7 +122,7 @@ function sendReport(slotLabel) {
     var xlsx = exportXlsx_(ctx, title);
     MailApp.sendEmail({
       to: settings.chairmanEmail,
-      subject: '[근태보고] ' + title + ' - 출근 ' + t.present + '/' + t.total + ', 지각 ' + t.late + ', 미출근 ' + t.absent,
+      subject: '[근태보고] ' + title + ' - 출근 ' + t.present + '/' + t.total + ', 지각 ' + t.late + ', 휴가 ' + t.vacation + ', 미출근 ' + t.absent,
       htmlBody: reportHtml_(ctx, title, ctx.status.summaries.concat([t]), ctx.status.rows),
       attachments: [xlsx]
     });
@@ -130,7 +132,7 @@ function sendReport(slotLabel) {
   if (settings.alimtalkOn && settings.reportTemplateId && settings.chairmanPhone) {
     sendAlimtalk_(settings, settings.chairmanPhone, settings.reportTemplateId,
       reportVariables_(ctx.dateStr, label, '전체 센터', t),
-      title + '\n전체 ' + t.total + ' / 출근 ' + t.present + ' / 지각 ' + t.late + ' / 미출근 ' + t.absent + ' / 외출중 ' + t.away);
+      summaryText_(title, t));
   }
 
   // 3) 센터장: 자기 센터 현황
@@ -150,10 +152,15 @@ function sendReport(slotLabel) {
       if (settings.alimtalkOn && settings.reportTemplateId && c.managerPhone) {
         sendAlimtalk_(settings, c.managerPhone, settings.reportTemplateId,
           reportVariables_(ctx.dateStr, label, c.name, s),
-          cTitle + '\n전체 ' + s.total + ' / 출근 ' + s.present + ' / 지각 ' + s.late + ' / 미출근 ' + s.absent + ' / 외출중 ' + s.away);
+          summaryText_(cTitle, s));
       }
     });
   }
+}
+
+function summaryText_(title, s) {
+  return title + '\n전체 ' + s.total + ' / 출근 ' + s.present + ' / 지각 ' + s.late + ' / 휴가 ' + s.vacation +
+    ' / 미출근 ' + s.absent + ' / 외출중 ' + s.away;
 }
 
 function reportVariables_(dateStr, label, scope, s) {
@@ -166,30 +173,33 @@ function reportVariables_(dateStr, label, scope, s) {
     '#{지각}': String(s.late),
     '#{미출근}': String(s.absent),
     '#{외출}': String(s.away),
-    '#{퇴근}': String(s.left)
+    '#{퇴근}': String(s.left),
+    '#{휴가}': String(s.vacation)
   };
 }
 
 function reportHtml_(ctx, title, summaries, rows) {
-  var table = function (header, body) {
+  var table = function (header, body, stateCol) {
     var th = header.map(function (h) {
       return '<th style="background:#1f4e79;color:#fff;padding:4px 8px;border:1px solid #ccc">' + escapeHtml_(h) + '</th>';
     }).join('');
     var trs = body.map(function (r) {
-      var bg = r[3] === STATES.NONE ? '#fde2e1' : r[3] === STATES.AWAY ? '#fff2cc' : '#fff';
+      var bg = (stateCol !== undefined && stateColor_(r[stateCol])) || '#fff';
       return '<tr style="background:' + bg + '">' + r.map(function (v) {
         return '<td style="padding:4px 8px;border:1px solid #ccc">' + escapeHtml_(v) + '</td>';
       }).join('') + '</tr>';
     }).join('');
     return '<table style="border-collapse:collapse;font-size:13px">' + '<tr>' + th + '</tr>' + trs + '</table>';
   };
-  var attention = rows.filter(function (r) { return r.state === STATES.NONE || r.state === STATES.AWAY || r.late; });
+  var attention = rows.filter(function (r) {
+    return r.state === STATES.NONE || r.state === STATES.AWAY || r.late || r.leaveType;
+  });
   return '<div style="font-family:sans-serif">' +
     '<h3>' + escapeHtml_(title) + '</h3>' +
     table(SUMMARY_HEADER, summaries.map(summaryValues_)) +
-    '<h4>확인 필요 (미출근 · 외출중 · 지각)</h4>' +
+    '<h4>확인 필요 (미출근 · 외출중 · 지각 · 휴가)</h4>' +
     (attention.length
-      ? table(DETAIL_HEADER, attention.map(function (r) { return detailValues_(r, ctx.centerName); }))
+      ? table(DETAIL_HEADER, attention.map(function (r) { return detailValues_(r, ctx.centerName); }), DETAIL_STATE_COL)
       : '<p>없음</p>') +
     '<p><a href="' + ss_().getUrl() + '">실시간 현황 시트 열기</a> (전체 직원 상세는 첨부 엑셀 참고)</p>' +
     '</div>';
@@ -201,6 +211,7 @@ function exportXlsx_(ctx, title) {
   try {
     var sh = tmp.getSheets()[0].setName('근태현황');
     writeReport_(sh, ctx, title);
+    writeLeaveStatus_(tmp.insertSheet('연차현황'), ctx.dateStr);
     SpreadsheetApp.flush();
     var url = 'https://docs.google.com/spreadsheets/d/' + tmp.getId() + '/export?format=xlsx';
     var blob = UrlFetchApp.fetch(url, {

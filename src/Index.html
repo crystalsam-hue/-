@@ -11,7 +11,7 @@
     h1 { font-size:20px; margin:0 0 16px; color:var(--brand); }
     .card { background:var(--card); border-radius:14px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,.06); margin-bottom:16px; }
     label { display:block; font-size:13px; color:var(--muted); margin:12px 0 6px; }
-    input, textarea { width:100%; font-size:17px; padding:12px; border:1px solid #d5d9e0; border-radius:10px; }
+    input, textarea, select { width:100%; font-size:17px; padding:12px; border:1px solid #d5d9e0; border-radius:10px; background:#fff; color:var(--text); }
     textarea { font-size:15px; resize:vertical; min-height:60px; }
     .remember { display:flex; align-items:center; gap:8px; margin-top:12px; font-size:14px; color:var(--muted); }
     .remember input { width:auto; }
@@ -22,12 +22,32 @@
     .b-in { background:#1e7d4f; } .b-out { background:#d68910; } .b-back { background:#2874a6; } .b-leave { background:#6c3483; }
     .who { font-size:18px; font-weight:600; }
     .state { display:inline-block; margin-top:6px; padding:4px 10px; border-radius:999px; background:#eef2f7; font-size:14px; }
+    .badge { display:inline-block; margin-left:6px; padding:4px 10px; border-radius:999px; background:#e2efda; color:#1e7d4f; font-size:14px; }
     .clock { font-size:36px; font-weight:700; text-align:center; margin:4px 0 16px; font-variant-numeric:tabular-nums; }
     .msg { padding:12px; border-radius:10px; font-size:15px; margin-top:12px; display:none; }
     .msg.ok { display:block; background:#e8f6ef; color:var(--ok); }
     .msg.err { display:block; background:#fdecea; color:var(--err); }
     .link { background:none; color:var(--muted); font-size:14px; font-weight:400; padding:8px; }
     .hidden { display:none; }
+    .tabs { display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:12px; background:#e4e8ef; padding:4px; border-radius:12px; }
+    .tabs button { margin:0; padding:10px; font-size:16px; background:transparent; color:var(--muted); border-radius:9px; }
+    .tabs button.on { background:#fff; color:var(--brand); box-shadow:0 1px 3px rgba(0,0,0,.08); }
+    .bal { display:grid; grid-template-columns:repeat(4, 1fr); text-align:center; gap:6px; }
+    .bal div { background:#f4f6f9; border-radius:10px; padding:10px 4px; }
+    .bal b { display:block; font-size:22px; font-variant-numeric:tabular-nums; }
+    .bal span { font-size:12px; color:var(--muted); }
+    .bal .rem b { color:var(--brand); }
+    .period { font-size:13px; color:var(--muted); margin-top:8px; text-align:center; }
+    .row2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .list { list-style:none; margin:0; padding:0; }
+    .list li { border-top:1px solid #eef0f4; padding:12px 0; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .list li:first-child { border-top:0; }
+    .list .t { font-weight:600; } .list .s { font-size:13px; color:var(--muted); }
+    .st { font-size:13px; padding:3px 8px; border-radius:999px; white-space:nowrap; }
+    .st-신청 { background:#fff2cc; color:#8a6100; } .st-승인 { background:#e2efda; color:#1e7d4f; }
+    .st-반려 { background:#fde2e1; color:#c0392b; } .st-취소 { background:#eef0f4; color:var(--muted); }
+    .mini { width:auto; margin:6px 0 0; padding:6px 10px; font-size:13px; background:#eef0f4; color:var(--muted); }
+    h2 { font-size:16px; margin:0 0 8px; }
   </style>
 </head>
 <body>
@@ -44,19 +64,59 @@
     <div id="loginMsg" class="msg"></div>
   </div>
 
-  <div id="main" class="card hidden">
-    <div class="who" id="who"></div>
-    <div class="state" id="state"></div>
-    <div class="clock" id="clock"></div>
-    <div class="grid">
-      <button class="b-in" data-action="출근" onclick="record(this)">출근</button>
-      <button class="b-leave" data-action="퇴근" onclick="record(this)">퇴근</button>
-      <button class="b-out" data-action="외출" onclick="record(this)">외출</button>
-      <button class="b-back" data-action="복귀" onclick="record(this)">복귀</button>
+  <div id="app" class="hidden">
+    <div class="tabs">
+      <button id="tab-work" class="on" onclick="tab('work')">출퇴근</button>
+      <button id="tab-leave" onclick="tab('leave')">휴가</button>
     </div>
-    <label for="note">비고 (외출 사유 등, 선택)</label>
-    <textarea id="note" maxlength="200" placeholder="예: 거래처 미팅"></textarea>
-    <div id="mainMsg" class="msg"></div>
+
+    <div id="pane-work" class="card">
+      <div class="who" id="who"></div>
+      <div class="state" id="state"></div><span id="todayLeave" class="badge hidden"></span>
+      <div class="clock" id="clock"></div>
+      <div class="grid">
+        <button class="b-in" data-action="출근" onclick="record(this)">출근</button>
+        <button class="b-leave" data-action="퇴근" onclick="record(this)">퇴근</button>
+        <button class="b-out" data-action="외출" onclick="record(this)">외출</button>
+        <button class="b-back" data-action="복귀" onclick="record(this)">복귀</button>
+      </div>
+      <label for="note">비고 (외출 사유 등, 선택)</label>
+      <textarea id="note" maxlength="200" placeholder="예: 거래처 미팅"></textarea>
+      <div id="mainMsg" class="msg"></div>
+    </div>
+
+    <div id="pane-leave" class="hidden">
+      <div class="card">
+        <h2>내 연차</h2>
+        <div class="bal">
+          <div><b id="bGranted">-</b><span>부여</span></div>
+          <div><b id="bUsed">-</b><span>사용</span></div>
+          <div><b id="bPending">-</b><span>승인대기</span></div>
+          <div class="rem"><b id="bRemaining">-</b><span>잔여</span></div>
+        </div>
+        <div class="period" id="bPeriod"></div>
+      </div>
+
+      <div class="card">
+        <h2>휴가 신청</h2>
+        <label for="lType">종류</label>
+        <select id="lType" onchange="syncType()"></select>
+        <div class="row2">
+          <div><label for="lStart">시작일</label><input id="lStart" type="date" onchange="syncType()"></div>
+          <div id="lEndBox"><label for="lEnd">종료일</label><input id="lEnd" type="date"></div>
+        </div>
+        <label for="lReason">사유 (선택)</label>
+        <textarea id="lReason" maxlength="200" placeholder="예: 개인 사정"></textarea>
+        <button id="lBtn" onclick="requestLeave()">신청하기</button>
+        <div id="leaveMsg" class="msg"></div>
+      </div>
+
+      <div class="card">
+        <h2>신청 내역</h2>
+        <ul class="list" id="lList"></ul>
+      </div>
+    </div>
+
     <button class="link" onclick="logout()">다른 사번으로 로그인</button>
   </div>
 </div>
@@ -66,40 +126,53 @@
   var geoRequired = false;
   var ALLOWED = { '미출근': ['출근'], '근무중': ['외출', '퇴근'], '외출중': ['복귀', '퇴근'], '퇴근': [] };
 
+  function $(id) { return document.getElementById(id); }
   function store(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
   function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
 
-  function show(id, text, ok) { var el = document.getElementById(id); el.textContent = text; el.className = 'msg ' + (ok ? 'ok' : 'err'); }
+  function show(id, text, ok) { var el = $(id); el.textContent = text; el.className = 'msg ' + (ok ? 'ok' : 'err'); }
   function errText(e) { return (e && e.message ? e.message : String(e)).replace(/^Error:\s*/, ''); }
+  function num(v) { return v === null || v === undefined ? '-' : String(v); }
 
   function tick() {
     var d = new Date();
     var p = function (n) { return (n < 10 ? '0' : '') + n; };
-    document.getElementById('clock').textContent = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    $('clock').textContent = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
   }
   setInterval(tick, 1000); tick();
 
+  function tab(name) {
+    ['work', 'leave'].forEach(function (n) {
+      $('pane-' + n).classList.toggle('hidden', n !== name);
+      $('tab-' + n).classList.toggle('on', n === name);
+    });
+    if (name === 'leave') loadLeave();
+  }
+
+  /* ── 출퇴근 ── */
   function render(st) {
     geoRequired = st.geoRequired;
-    document.getElementById('login').classList.add('hidden');
-    document.getElementById('main').classList.remove('hidden');
-    document.getElementById('who').textContent = st.name + ' · ' + st.centerName;
-    document.getElementById('state').textContent = '현재: ' + st.state +
+    $('login').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    $('who').textContent = st.name + ' · ' + st.centerName;
+    $('state').textContent = '현재: ' + st.state +
       (st.inAt ? ' (출근 ' + st.inAt + ')' : '') + (st.leaveAt ? ' (퇴근 ' + st.leaveAt + ')' : '');
+    $('todayLeave').textContent = '오늘 ' + st.todayLeave;
+    $('todayLeave').classList.toggle('hidden', !st.todayLeave);
     var allowed = ALLOWED[st.state] || [];
     document.querySelectorAll('[data-action]').forEach(function (b) { b.disabled = allowed.indexOf(b.dataset.action) === -1; });
   }
 
   function login(saved) {
-    var eid = saved ? saved.eid : document.getElementById('eid').value.trim();
-    var pin = saved ? saved.pin : document.getElementById('pin').value.trim();
+    var eid = saved ? saved.eid : $('eid').value.trim();
+    var pin = saved ? saved.pin : $('pin').value.trim();
     if (!eid || !pin) { show('loginMsg', '사번과 PIN을 입력하세요.'); return; }
-    var btn = document.getElementById('loginBtn'); btn.disabled = true;
+    var btn = $('loginBtn'); btn.disabled = true;
     google.script.run
       .withSuccessHandler(function (st) {
         btn.disabled = false;
         cred = { eid: eid, pin: pin };
-        if (saved || document.getElementById('remember').checked) store('cred', JSON.stringify(cred));
+        if (saved || $('remember').checked) store('cred', JSON.stringify(cred));
         render(st);
       })
       .withFailureHandler(function (e) { btn.disabled = false; store('cred', null); show('loginMsg', errText(e)); })
@@ -108,8 +181,9 @@
 
   function logout() {
     store('cred', null); cred = null;
-    document.getElementById('main').classList.add('hidden');
-    document.getElementById('login').classList.remove('hidden');
+    $('app').classList.add('hidden');
+    $('login').classList.remove('hidden');
+    tab('work');
   }
 
   function position(cb) {
@@ -120,27 +194,96 @@
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
   }
 
+  function refreshStatus() { google.script.run.withSuccessHandler(render).apiStatus(cred.eid, cred.pin); }
+
   function record(btn) {
     var action = btn.dataset.action;
     if (!confirm(action + ' 하시겠습니까?')) return;
-    var buttons = document.querySelectorAll('[data-action]');
-    buttons.forEach(function (b) { b.disabled = true; });
+    document.querySelectorAll('[data-action]').forEach(function (b) { b.disabled = true; });
     show('mainMsg', '처리 중...', true);
     var send = function (c) {
       google.script.run
-        .withSuccessHandler(function (r) {
-          show('mainMsg', r.message, true);
-          document.getElementById('note').value = '';
-          google.script.run.withSuccessHandler(render).apiStatus(cred.eid, cred.pin);
-        })
-        .withFailureHandler(function (e) {
-          show('mainMsg', errText(e));
-          google.script.run.withSuccessHandler(render).apiStatus(cred.eid, cred.pin);
-        })
-        .apiRecord(cred.eid, cred.pin, action, document.getElementById('note').value,
-          c ? c.latitude : null, c ? c.longitude : null);
+        .withSuccessHandler(function (r) { show('mainMsg', r.message, true); $('note').value = ''; refreshStatus(); })
+        .withFailureHandler(function (e) { show('mainMsg', errText(e)); refreshStatus(); })
+        .apiRecord(cred.eid, cred.pin, action, $('note').value, c ? c.latitude : null, c ? c.longitude : null);
     };
     if (geoRequired) position(send); else send(null);
+  }
+
+  /* ── 휴가 ── */
+  var leaveLoaded = false;
+
+  function isHalf(t) { return t === '오전반차' || t === '오후반차'; }
+
+  function syncType() {
+    var half = isHalf($('lType').value);
+    $('lEndBox').style.visibility = half ? 'hidden' : 'visible';
+    if (half || !$('lEnd').value || $('lEnd').value < $('lStart').value) $('lEnd').value = $('lStart').value;
+  }
+
+  function loadLeave() {
+    google.script.run
+      .withSuccessHandler(function (info) {
+        if (!leaveLoaded) {
+          $('lType').innerHTML = info.types.map(function (t) { return '<option>' + t + '</option>'; }).join('');
+          $('lStart').value = info.today; $('lEnd').value = info.today;
+          leaveLoaded = true;
+          syncType();
+        }
+        $('bGranted').textContent = info.granted === null ? '미설정' : num(info.granted);
+        $('bUsed').textContent = num(info.used);
+        $('bPending').textContent = num(info.pending);
+        $('bRemaining').textContent = num(info.remaining);
+        $('bPeriod').textContent = '산정기간 ' + info.periodStart + ' ~ ' + info.periodEnd;
+        renderList(info.requests);
+      })
+      .withFailureHandler(function (e) { show('leaveMsg', errText(e)); })
+      .apiLeaveInfo(cred.eid, cred.pin);
+  }
+
+  function renderList(list) {
+    var ul = $('lList');
+    ul.innerHTML = '';
+    if (!list.length) { ul.innerHTML = '<li><span class="s">신청 내역이 없습니다.</span></li>'; return; }
+    list.forEach(function (r) {
+      var li = document.createElement('li');
+      var left = document.createElement('div');
+      var t = document.createElement('div'); t.className = 't';
+      t.textContent = r.type + ' · ' + r.days + '일';
+      var s = document.createElement('div'); s.className = 's';
+      s.textContent = (r.start === r.end ? r.start : r.start + ' ~ ' + r.end) + (r.memo ? ' · ' + r.memo : '');
+      left.appendChild(t); left.appendChild(s);
+      var right = document.createElement('div'); right.style.textAlign = 'right';
+      var st = document.createElement('span'); st.className = 'st st-' + r.status; st.textContent = r.status;
+      right.appendChild(st);
+      if (r.status === '신청') {
+        var c = document.createElement('button'); c.className = 'mini'; c.textContent = '취소';
+        c.onclick = function () { cancelLeave(r.id); };
+        right.appendChild(document.createElement('br')); right.appendChild(c);
+      }
+      li.appendChild(left); li.appendChild(right);
+      ul.appendChild(li);
+    });
+  }
+
+  function requestLeave() {
+    var type = $('lType').value, start = $('lStart').value, end = isHalf(type) ? start : $('lEnd').value;
+    if (!start || !end) { show('leaveMsg', '날짜를 선택하세요.'); return; }
+    if (!confirm(type + ' ' + (start === end ? start : start + ' ~ ' + end) + ' 신청하시겠습니까?')) return;
+    var btn = $('lBtn'); btn.disabled = true;
+    show('leaveMsg', '처리 중...', true);
+    google.script.run
+      .withSuccessHandler(function (r) { btn.disabled = false; show('leaveMsg', r.message, true); $('lReason').value = ''; loadLeave(); })
+      .withFailureHandler(function (e) { btn.disabled = false; show('leaveMsg', errText(e)); })
+      .apiRequestLeave(cred.eid, cred.pin, type, start, end, $('lReason').value);
+  }
+
+  function cancelLeave(id) {
+    if (!confirm('이 신청을 취소하시겠습니까?')) return;
+    google.script.run
+      .withSuccessHandler(function (r) { show('leaveMsg', r.message, true); loadLeave(); })
+      .withFailureHandler(function (e) { show('leaveMsg', errText(e)); })
+      .apiCancelLeave(cred.eid, cred.pin, id);
   }
 
   (function () {

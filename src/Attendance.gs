@@ -1,8 +1,10 @@
 /**
- * 웹앱(직원용 출퇴근 화면) 및 기록 처리
+ * 웹앱(직원용 출퇴근 · 휴가 화면) 및 출퇴근 기록 처리
  */
 
-function doGet() {
+function doGet(e) {
+  var p = (e && e.parameter) || {};
+  if (p.leave && p.t) return leaveDecisionPage_(p.leave, p.t);
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('출퇴근 체크')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1')
@@ -32,15 +34,21 @@ function stateOf_(employeeId, dateStr) {
   return computeEmployeeDay(events);
 }
 
+function todayLeaveOf_(employeeId, dateStr) {
+  return leavesOn(getLeaves(), dateStr)[employeeId] || '';
+}
+
 /** 웹앱: 로그인 후 현재 상태 조회 */
 function apiStatus(employeeId, pin) {
   var emp = findEmployee_(employeeId, pin);
   var center = getCenters().filter(function (c) { return c.code === emp.centerCode; })[0];
-  var day = stateOf_(emp.id, todayStr_());
+  var today = todayStr_();
+  var day = stateOf_(emp.id, today);
   return {
-    name: emp.name,
+    name: displayName_(emp),
     centerName: center ? center.name : emp.centerCode,
     state: day.state,
+    todayLeave: todayLeaveOf_(emp.id, today),
     inAt: day.inAt === null ? '' : formatHm(day.inAt),
     leaveAt: day.leaveAt === null ? '' : formatHm(day.leaveAt),
     geoRequired: getSettings().geoOn
@@ -76,9 +84,12 @@ function apiRecord(employeeId, pin, action, note, lat, lng) {
 
     var timeStr = Utilities.formatDate(now, 'Asia/Seoul', 'HH:mm:ss');
     var minutes = nowMinutes_(now);
+    var leaveType = todayLeaveOf_(emp.id, dateStr);
+    var rule = workRuleFor(leaveType, workRule_(settings));
     var tags = [];
-    if (action === ACTIONS.IN && isLate(minutes, settings.startMinutes, settings.graceMinutes)) tags.push('지각');
-    if (action === ACTIONS.LEAVE && minutes < settings.endMinutes) tags.push('조퇴');
+    if (leaveType) tags.push(leaveType);
+    if (action === ACTIONS.IN && (!leaveType || isHalfDay(leaveType)) && isLate(minutes, rule.startMinutes, rule.graceMinutes)) tags.push('지각');
+    if (action === ACTIONS.LEAVE && minutes < rule.endMinutes) tags.push('조퇴');
     if (geoJudge === '범위밖') tags.push('위치 범위밖 ' + distance + 'm');
 
     record = {
@@ -86,7 +97,7 @@ function apiRecord(employeeId, pin, action, note, lat, lng) {
       date: dateStr,
       time: timeStr,
       employeeId: emp.id,
-      name: emp.name,
+      name: displayName_(emp),
       centerCode: center.code,
       centerName: center.name,
       action: action,
@@ -95,7 +106,7 @@ function apiRecord(employeeId, pin, action, note, lat, lng) {
     };
 
     sheet_(SHEET.LOG).appendRow([
-      record.id, record.date, record.time, record.employeeId, record.name,
+      record.id, record.date, record.time, record.employeeId, emp.name,
       record.centerCode, record.centerName, record.action,
       [record.note].concat(tags).filter(String).join(' / '),
       hasPos ? Number(lat) : '', hasPos ? Number(lng) : '', distance, geoJudge
