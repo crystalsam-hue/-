@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    :root { --brand:#1f4e79; --bg:#f4f6f9; --card:#fff; --text:#1d2433; --muted:#6b7385; --ok:#1e7d4f; --err:#c0392b; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:-apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif; background:var(--bg); color:var(--text); }
+    .wrap { max-width:420px; margin:0 auto; padding:24px 16px; }
+    h1 { font-size:20px; margin:0 0 16px; color:var(--brand); }
+    .card { background:var(--card); border-radius:14px; padding:20px; box-shadow:0 2px 8px rgba(0,0,0,.06); margin-bottom:16px; }
+    label { display:block; font-size:13px; color:var(--muted); margin:12px 0 6px; }
+    input, textarea { width:100%; font-size:17px; padding:12px; border:1px solid #d5d9e0; border-radius:10px; }
+    textarea { font-size:15px; resize:vertical; min-height:60px; }
+    .remember { display:flex; align-items:center; gap:8px; margin-top:12px; font-size:14px; color:var(--muted); }
+    .remember input { width:auto; }
+    button { width:100%; font-size:18px; font-weight:600; padding:16px; border:0; border-radius:12px; color:#fff; background:var(--brand); margin-top:16px; }
+    button:disabled { opacity:.35; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .grid button { margin-top:0; }
+    .b-in { background:#1e7d4f; } .b-out { background:#d68910; } .b-back { background:#2874a6; } .b-leave { background:#6c3483; }
+    .who { font-size:18px; font-weight:600; }
+    .state { display:inline-block; margin-top:6px; padding:4px 10px; border-radius:999px; background:#eef2f7; font-size:14px; }
+    .clock { font-size:36px; font-weight:700; text-align:center; margin:4px 0 16px; font-variant-numeric:tabular-nums; }
+    .msg { padding:12px; border-radius:10px; font-size:15px; margin-top:12px; display:none; }
+    .msg.ok { display:block; background:#e8f6ef; color:var(--ok); }
+    .msg.err { display:block; background:#fdecea; color:var(--err); }
+    .link { background:none; color:var(--muted); font-size:14px; font-weight:400; padding:8px; }
+    .hidden { display:none; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>출퇴근 체크</h1>
+
+  <div id="login" class="card">
+    <label for="eid">사번</label>
+    <input id="eid" autocomplete="username" placeholder="예: E0001">
+    <label for="pin">PIN</label>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="current-password" placeholder="숫자 4~6자리">
+    <div class="remember"><input id="remember" type="checkbox" checked><span>이 기기에서 로그인 유지</span></div>
+    <button id="loginBtn" onclick="login()">확인</button>
+    <div id="loginMsg" class="msg"></div>
+  </div>
+
+  <div id="main" class="card hidden">
+    <div class="who" id="who"></div>
+    <div class="state" id="state"></div>
+    <div class="clock" id="clock"></div>
+    <div class="grid">
+      <button class="b-in" data-action="출근" onclick="record(this)">출근</button>
+      <button class="b-leave" data-action="퇴근" onclick="record(this)">퇴근</button>
+      <button class="b-out" data-action="외출" onclick="record(this)">외출</button>
+      <button class="b-back" data-action="복귀" onclick="record(this)">복귀</button>
+    </div>
+    <label for="note">비고 (외출 사유 등, 선택)</label>
+    <textarea id="note" maxlength="200" placeholder="예: 거래처 미팅"></textarea>
+    <div id="mainMsg" class="msg"></div>
+    <button class="link" onclick="logout()">다른 사번으로 로그인</button>
+  </div>
+</div>
+
+<script>
+  var cred = null;
+  var geoRequired = false;
+  var ALLOWED = { '미출근': ['출근'], '근무중': ['외출', '퇴근'], '외출중': ['복귀', '퇴근'], '퇴근': [] };
+
+  function store(k, v) { try { v === null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
+  function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+  function show(id, text, ok) { var el = document.getElementById(id); el.textContent = text; el.className = 'msg ' + (ok ? 'ok' : 'err'); }
+  function errText(e) { return (e && e.message ? e.message : String(e)).replace(/^Error:\s*/, ''); }
+
+  function tick() {
+    var d = new Date();
+    var p = function (n) { return (n < 10 ? '0' : '') + n; };
+    document.getElementById('clock').textContent = p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+  setInterval(tick, 1000); tick();
+
+  function render(st) {
+    geoRequired = st.geoRequired;
+    document.getElementById('login').classList.add('hidden');
+    document.getElementById('main').classList.remove('hidden');
+    document.getElementById('who').textContent = st.name + ' · ' + st.centerName;
+    document.getElementById('state').textContent = '현재: ' + st.state +
+      (st.inAt ? ' (출근 ' + st.inAt + ')' : '') + (st.leaveAt ? ' (퇴근 ' + st.leaveAt + ')' : '');
+    var allowed = ALLOWED[st.state] || [];
+    document.querySelectorAll('[data-action]').forEach(function (b) { b.disabled = allowed.indexOf(b.dataset.action) === -1; });
+  }
+
+  function login(saved) {
+    var eid = saved ? saved.eid : document.getElementById('eid').value.trim();
+    var pin = saved ? saved.pin : document.getElementById('pin').value.trim();
+    if (!eid || !pin) { show('loginMsg', '사번과 PIN을 입력하세요.'); return; }
+    var btn = document.getElementById('loginBtn'); btn.disabled = true;
+    google.script.run
+      .withSuccessHandler(function (st) {
+        btn.disabled = false;
+        cred = { eid: eid, pin: pin };
+        if (saved || document.getElementById('remember').checked) store('cred', JSON.stringify(cred));
+        render(st);
+      })
+      .withFailureHandler(function (e) { btn.disabled = false; store('cred', null); show('loginMsg', errText(e)); })
+      .apiStatus(eid, pin);
+  }
+
+  function logout() {
+    store('cred', null); cred = null;
+    document.getElementById('main').classList.add('hidden');
+    document.getElementById('login').classList.remove('hidden');
+  }
+
+  function position(cb) {
+    if (!navigator.geolocation) { cb(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      function (p) { cb(p.coords); },
+      function () { cb(null); },
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+  }
+
+  function record(btn) {
+    var action = btn.dataset.action;
+    if (!confirm(action + ' 하시겠습니까?')) return;
+    var buttons = document.querySelectorAll('[data-action]');
+    buttons.forEach(function (b) { b.disabled = true; });
+    show('mainMsg', '처리 중...', true);
+    var send = function (c) {
+      google.script.run
+        .withSuccessHandler(function (r) {
+          show('mainMsg', r.message, true);
+          document.getElementById('note').value = '';
+          google.script.run.withSuccessHandler(render).apiStatus(cred.eid, cred.pin);
+        })
+        .withFailureHandler(function (e) {
+          show('mainMsg', errText(e));
+          google.script.run.withSuccessHandler(render).apiStatus(cred.eid, cred.pin);
+        })
+        .apiRecord(cred.eid, cred.pin, action, document.getElementById('note').value,
+          c ? c.latitude : null, c ? c.longitude : null);
+    };
+    if (geoRequired) position(send); else send(null);
+  }
+
+  (function () {
+    var saved = load('cred');
+    if (saved) { try { login(JSON.parse(saved)); } catch (e) { store('cred', null); } }
+  })();
+</script>
+</body>
+</html>

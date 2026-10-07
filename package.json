@@ -1,0 +1,8 @@
+{
+  "name": "center-attendance",
+  "private": true,
+  "description": "전국 센터 출퇴근 관리 (Google Sheets + Apps Script)",
+  "scripts": {
+    "test": "node --test test/logic.test.js"
+  }
+}
